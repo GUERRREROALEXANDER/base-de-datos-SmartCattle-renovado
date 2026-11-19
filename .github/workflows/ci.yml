@@ -72,3 +72,41 @@ jobs:
         run: |
           $PSQL -c "DO \$\$ BEGIN
             ASSERT (SELECT count(*) FROM cameras WHERE name = 'Main camera') = 1,
+                   'la camara semilla se duplico';
+            ASSERT (SELECT count(*) FROM zones z JOIN cameras c ON c.id = z.camera_id
+                    WHERE c.name = 'Main camera' AND z.name = 'Safe zone') = 1,
+                   'la zona semilla se duplico';
+          END \$\$;"
+
+      - name: Apply the development seeds, twice
+        # They are offered to the team as re-runnable, so they are checked the
+        # same way the migrations are. seed-dev-events is meant to add rows on
+        # every pass, so only the first file is asserted to be stable.
+        run: |
+          $PSQL -f database/seed-dev.sql
+          $PSQL -f database/seed-dev.sql
+          $PSQL -f database/seed-dev-events.sql
+          $PSQL -c "DO \$\$ BEGIN
+            ASSERT (SELECT count(*) FROM animals WHERE tag LIKE 'dev-%') = 14,
+                   'seed-dev duplico el hato en la segunda pasada';
+            ASSERT (SELECT count(*) FROM users WHERE email LIKE 'dev-%') = 2,
+                   'seed-dev duplico el personal en la segunda pasada';
+          END \$\$;"
+
+      - name: Re-run the checks against a populated database
+        # The checks pass on an empty database by default. Most of the traps
+        # they describe only exist once there are rows.
+        run: |
+          for file in database/tests/*.sql; do $PSQL -f "$file"; done
+
+      - name: install.sql builds a new database on its own
+        # The documented path for a fresh database is install.sql, not the
+        # directory loop this pipeline uses everywhere else. A migration added
+        # without its \i line would pass every step above and leave a new
+        # database incomplete, so install.sql gets its own empty database.
+        run: |
+          $PSQL -d postgres -c 'CREATE DATABASE smartcattle_install'
+          PGDATABASE=smartcattle_install $PSQL -f database/install.sql
+          PGDATABASE=smartcattle_install $PSQL -f database/tests/19_install_is_complete.sql
+          PGDATABASE=smartcattle_install $PSQL -f database/install.sql
+          PGDATABASE=smartcattle_install $PSQL -f database/tests/19_install_is_complete.sql
