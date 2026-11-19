@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  schema:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        # Matches the major version Neon serves.
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: smartcattle_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: smartcattle_test
+      PSQL: psql -v ON_ERROR_STOP=1 --no-psqlrc -q
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: install.sql lists every migration, in order
+        run: ./scripts/check-install-lists-migrations.sh
+
+      - name: Apply schema.sql
+        run: $PSQL -f database/schema.sql
+
+      - name: Apply migrations in order
+        run: |
+          for file in database/migrations/*.sql; do
+            echo "-- $file"
+            $PSQL -f "$file"
+          done
+
+      - name: Re-apply everything, which must be a no-op
+        # The whole repository claims to be safe to run twice. This is the only
+        # place that claim is actually tested.
+        run: |
+          $PSQL -f database/schema.sql
+          for file in database/migrations/*.sql; do $PSQL -f "$file"; done
+
+      - name: Run the schema checks
+        run: |
+          for file in database/tests/*.sql; do
+            echo "-- $file"
+            $PSQL -f "$file"
+          done
+
+      - name: Seed rows exist exactly once after two applications
+        # Scoped to the seed camera. Counting zones by name alone is wrong:
+        # UNIQUE is (camera_id, name), so every camera may have its own
+        # "Safe zone" and a global count grows legitimately.
+        run: |
+          $PSQL -c "DO \$\$ BEGIN
+            ASSERT (SELECT count(*) FROM cameras WHERE name = 'Main camera') = 1,
