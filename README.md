@@ -46,3 +46,40 @@ Get-ChildItem database/tests/*.sql | Sort-Object Name | ForEach-Object {
 Silencio es exito: usan `ASSERT`, que solo habla cuando algo esta mal.
 
 CI corre esto en cada push contra un PostgreSQL 17 real, aplica todo **dos
+veces** para comprobar la idempotencia, y repite las comprobaciones con datos
+sembrados.
+
+## Las tablas
+
+| Tabla | Para que | Crece |
+| --- | --- | --- |
+| `cameras` | Camaras de cada cuenta | No |
+| `zones` | Zona segura por camara, de 0 a 1 | No |
+| `users` | Personal: correo, hash bcrypt, rol, preferencias | No |
+| `animals` | Registro de animales, PK el arete | Lento |
+| `events` | Incidentes (`cattle_out_of_zone`) | **Sin techo** |
+| `alerts` | Avisos por evento: canal y estado | **Con los eventos** |
+| `detection_logs` | Lo que vio la IA por camara y minuto, por postura | **1 440 por camara al dia** |
+
+Detalle columna por columna en [docs/diccionario/](docs/diccionario/).
+
+El informe diario es la funcion `daily_reports()`. El asistente de IA lee solo lo
+que describe [docs/asistente.md](docs/asistente.md).
+
+## Las tres decisiones que conviene saber antes de tocar nada
+
+1. **El arete es la clave primaria de `animals`.** No hay `id` numerico. El
+   precio es que una clave natural cambia, y de ahi el `ON UPDATE CASCADE` en
+   `events.animal_tag`.
+2. **Se desactiva, no se borra.** `animals.status`, `users.is_active`,
+   `cameras.active`. El historico sobrevive a que se retire su origen; la
+   unica excepcion es `alerts`, que se va con su evento.
+3. **`users.password_hash` es bcrypt, nunca SHA.** Ver
+   [docs/seguridad.md](docs/seguridad.md).
+
+El resto en [docs/convenciones.md](docs/convenciones.md).
+
+## Nada de credenciales en el repositorio
+
+La cadena de conexion lleva la clave. Va en `.env`, que `.gitignore` ignora.
+Plantilla en [.env.example](.env.example).
