@@ -72,3 +72,60 @@ BEGIN
     INSERT INTO cameras (name, account_id, display_name) VALUES ('t27-dia', ana, 'Corral') RETURNING id INTO cam;
 
     INSERT INTO detection_logs (camera_id, minute, cattle_lying, cattle_standing, cattle_walking,
+                                cattle_unknown, people, avg_confidence, observed_at) VALUES
+        -- 23:30 del 1 en Bogota, ya el 2 en UTC: cuenta para el 1.
+        (cam, '2026-03-02 04:30+00', 4, 2, 0, 0, 0, 0.8, now()),
+        (cam, '2026-03-01 12:00+00', 2, 2, 0, 0, 1, 0.6, now()),
+        -- 00:30 del 2 en Bogota: no cuenta para el 1.
+        (cam, '2026-03-02 05:30+00', 9, 9, 9, 9, 9, 0.9, now());
+
+    INSERT INTO events (type, camera_id, detected_at) VALUES
+        ('cattle_out_of_zone', cam, '2026-03-01 15:00+00'),
+        ('otro_tipo',          cam, '2026-03-01 15:00+00');
+    INSERT INTO occupancy_samples (camera_id, minute, cattle_inside, cattle_outside, observed_at) VALUES
+        (cam, '2026-03-01 15:01+00', 6, 2, now());
+
+    SELECT * INTO STRICT r FROM daily_reports(ana, '2026-03-01', '2026-03-01', 'America/Bogota');
+    ASSERT r.report_date = '2026-03-01' AND r.camera = 'Corral', 'dia o nombre incorrecto';
+    ASSERT r.minutes_observed = 2, format('minutos esperados 2, hay %s', r.minutes_observed);
+    -- Conteos de lo que se veia: 6 y 4 reses dan promedio 5, no 10.
+    ASSERT r.avg_cattle = 5.0 AND r.max_cattle = 6, format('ganado: %s y %s', r.avg_cattle, r.max_cattle);
+    ASSERT r.avg_cattle_lying = 3.0 AND r.avg_cattle_standing = 2.0 AND r.avg_cattle_walking = 0.0, 'posturas';
+    ASSERT r.max_people = 1 AND r.minutes_with_people = 1, 'personas';
+    ASSERT r.avg_confidence = 0.700, format('confianza esperada 0.700, hay %s', r.avg_confidence);
+    ASSERT r.first_seen_at = '2026-03-01 12:00+00' AND r.last_seen_at = '2026-03-02 04:30+00', 'primera y ultima vez';
+    ASSERT r.out_of_zone_events = 1, 'solo deberia contar cattle_out_of_zone';
+    ASSERT r.max_cattle_outside = 2, 'ganado afuera';
+
+    -- En UTC el mismo dia corta distinto: la fila de las 04:30 pasa al dia 2.
+    ASSERT (SELECT minutes_observed FROM daily_reports(ana, '2026-03-01', '2026-03-01', 'UTC')) = 1,
+           'la zona horaria deberia cambiar el corte del dia';
+
+    ASSERT (SELECT count(*) FROM daily_reports(ana, '2026-03-01', '2026-03-02', 'America/Bogota')) = 2,
+           'un rango de dos dias con datos deberia dar dos filas';
+    ASSERT (SELECT count(*) FROM daily_reports(ana, '2026-03-20', '2026-03-20', 'America/Bogota')) = 0,
+           'un dia sin datos no deberia tener fila';
+    ASSERT (SELECT count(*) FROM daily_reports(luis, '2026-03-01', '2026-03-02', 'America/Bogota')) = 0,
+           'otra cuenta no deberia recibir este informe';
+    ASSERT (SELECT count(*) FROM daily_reports(NULL, '2026-03-01', '2026-03-02', 'America/Bogota')) = 0,
+           'sin cuenta no deberia haber informe';
+
+    BEGIN
+        PERFORM * FROM daily_reports(ana, '2026-03-01', '2026-03-01', 'Marte/Olympus');
+        ASSERT false, 'una zona horaria invalida deberia fallar';
+    EXCEPTION WHEN invalid_parameter_value THEN NULL;
+    END;
+
+    -- La poda no toca los eventos, y lo podado deja de aparecer en el informe.
+    ASSERT prune_detection_logs(interval '1 second') >= 3, 'la poda deberia borrar las filas viejas';
+    ASSERT NOT EXISTS (SELECT 1 FROM detection_logs WHERE camera_id = cam), 'quedaron filas sin podar';
+    ASSERT (SELECT minutes_observed FROM daily_reports(ana, '2026-03-01', '2026-03-01', 'America/Bogota')) = 0,
+           'lo podado no deberia contar';
+    BEGIN
+        PERFORM prune_detection_logs(interval '0');
+        ASSERT false, 'prune_detection_logs no deberia aceptar un intervalo cero';
+    EXCEPTION WHEN raise_exception THEN NULL;
+    END;
+END $$;
+
+ROLLBACK;
