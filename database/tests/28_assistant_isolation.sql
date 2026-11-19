@@ -53,3 +53,76 @@ BEGIN
 
     PERFORM set_config('app.current_account_id', current_setting('t28.luis'), true);
     ASSERT (SELECT count(*) FROM v_assistant_detections) = 2, 'luis deberia ver sus dos filas';
+    ASSERT (SELECT count(*) FROM v_assistant_events) = 1, 'luis deberia ver su evento';
+    ASSERT (SELECT max_people FROM assistant_daily_reports('2026-03-01', '2026-03-01')) = 3,
+           'luis deberia recibir su informe';
+
+    -- Pedir la camara de otro por nombre tampoco la trae.
+    ASSERT NOT EXISTS (SELECT 1 FROM v_assistant_detections WHERE camera = 'Corral'),
+           'luis no deberia alcanzar la camara de ana por su nombre';
+END $$;
+
+-- El rol no alcanza ninguna tabla, y no escribe.
+DO $$
+DECLARE
+    target text;
+BEGIN
+    FOREACH target IN ARRAY ARRAY['users', 'cameras', 'detection_logs', 'detections', 'events', 'audit_log'] LOOP
+        BEGIN
+            EXECUTE format('SELECT 1 FROM %I LIMIT 1', target);
+            ASSERT false, format('el asistente no deberia leer %s', target);
+        EXCEPTION WHEN insufficient_privilege THEN NULL;
+        END;
+    END LOOP;
+
+    ASSERT NOT has_table_privilege('smartcattle_assistant', 'v_assistant_detections', 'INSERT, UPDATE, DELETE'),
+           'el asistente no deberia poder escribir por las vistas';
+
+    -- daily_reports() acepta cualquier cuenta, y por eso no le sirve a este rol:
+    -- corre con sus permisos y no alcanza las tablas.
+    BEGIN
+        PERFORM * FROM daily_reports(current_setting('t28.ana')::bigint, '2026-03-01', '2026-03-01');
+        ASSERT false, 'el asistente no deberia pedir el informe de una cuenta a su eleccion';
+    EXCEPTION WHEN insufficient_privilege THEN NULL;
+    END;
+
+    BEGIN
+        PERFORM prune_detection_logs(interval '1 second');
+        ASSERT false, 'el asistente no deberia podar';
+    EXCEPTION WHEN insufficient_privilege THEN NULL;
+    END;
+END $$;
+
+RESET ROLE;
+
+-- La funcion con SECURITY DEFINER no queda abierta a cualquiera.
+DO $$
+BEGIN
+    ASSERT NOT has_function_privilege('public', 'assistant_daily_reports(date, date, text)', 'EXECUTE'),
+           'assistant_daily_reports no deberia estar abierta a PUBLIC';
+END $$;
+
+-- Ninguna vista del asistente saca columnas sensibles, ni las que lleguen luego.
+DO $$
+DECLARE
+    leaked text[];
+BEGIN
+    SELECT array_agg(format('%s.%s', table_name, column_name)) INTO leaked
+      FROM information_schema.columns
+     WHERE table_name LIKE 'v\_assistant\_%'
+       AND column_name IN ('password_hash', 'email', 'full_name', 'source', 'stream_url',
+                           'last_error', 'ip_address', 'preferences', 'storage_key');
+    ASSERT leaked IS NULL, format('el asistente expone columnas sensibles: %s', leaked);
+
+    -- Todas llevan security_barrier, tambien las que se crean condicionalmente.
+    SELECT array_agg(c.relname) INTO leaked
+      FROM pg_class c
+     WHERE c.relkind = 'v' AND c.relname LIKE 'v\_assistant\_%'
+       AND NOT coalesce(c.reloptions @> ARRAY['security_barrier=true'], false);
+    ASSERT leaked IS NULL, format('vistas sin security_barrier: %s', leaked);
+END $$;
+
+ROLLBACK;
+\else
+\echo 'smartcattle_assistant no existe; se omite'
+\endif
