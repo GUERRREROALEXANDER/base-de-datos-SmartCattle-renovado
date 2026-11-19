@@ -81,3 +81,109 @@ SELECT e.id,
        e.detected_at
   FROM events e
   JOIN cameras c ON c.id = e.camera_id
+ WHERE c.account_id = assistant_account_id();
+
+-- SECURITY DEFINER: daily_reports() lee tablas a las que este rol no tiene acceso.
+-- Es seguro porque no recibe la cuenta como parametro, la toma de la sesion, y
+-- search_path fijo porque una funcion asi no puede resolver nombres con el del
+-- que la llama.
+CREATE OR REPLACE FUNCTION assistant_daily_reports(
+    first_day date,
+    last_day date,
+    day_time_zone text DEFAULT 'America/Bogota'
+) RETURNS TABLE (
+    report_date date,
+    camera text,
+    minutes_observed integer,
+    avg_cattle numeric,
+    max_cattle integer,
+    avg_cattle_lying numeric,
+    avg_cattle_standing numeric,
+    avg_cattle_walking numeric,
+    max_people integer,
+    minutes_with_people integer,
+    avg_confidence numeric,
+    first_seen_at timestamptz,
+    last_seen_at timestamptz,
+    out_of_zone_events integer,
+    max_cattle_outside integer
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path FROM CURRENT
+AS $$
+    SELECT r.report_date, r.camera, r.minutes_observed, r.avg_cattle, r.max_cattle,
+           r.avg_cattle_lying, r.avg_cattle_standing, r.avg_cattle_walking,
+           r.max_people, r.minutes_with_people, r.avg_confidence,
+           r.first_seen_at, r.last_seen_at, r.out_of_zone_events, r.max_cattle_outside
+      FROM daily_reports(assistant_account_id(), first_day, last_day, day_time_zone) AS r
+$$;
+
+REVOKE ALL ON FUNCTION assistant_daily_reports(date, date, text) FROM PUBLIC;
+
+COMMENT ON FUNCTION assistant_daily_reports(date, date, text) IS
+    'daily_reports() de la cuenta de la sesion. Es lo unico con SECURITY DEFINER: no acepta otra cuenta.';
+
+-- El estado de conexion y las alertas viven en columnas y tablas que crea el
+-- backend, asi que estas dos se saltan hasta que existan, como en 0012 y 0028.
+DO $$
+BEGIN
+    IF to_regclass('v_camera_health') IS NULL THEN
+        RAISE NOTICE 'v_assistant_cameras omitida: falta v_camera_health (migraciones del backend)';
+        RETURN;
+    END IF;
+
+    CREATE OR REPLACE VIEW v_assistant_cameras WITH (security_barrier = true) AS
+    SELECT h.id,
+           coalesce(c.display_name, c.name) AS camera,
+           h.location,
+           h.active,
+           h.effective_status AS status,
+           h.last_report_at,
+           h.last_online_at
+      FROM v_camera_health h
+      JOIN cameras c ON c.id = h.id
+     WHERE c.account_id = assistant_account_id();
+END $$;
+
+DO $$
+BEGIN
+    IF to_regclass('security_alerts') IS NULL THEN
+        RAISE NOTICE 'v_assistant_alerts omitida: falta security_alerts (migraciones del backend)';
+        RETURN;
+    END IF;
+
+    CREATE OR REPLACE VIEW v_assistant_alerts WITH (security_barrier = true) AS
+    SELECT a.id,
+           coalesce(c.display_name, c.name) AS camera,
+           a.alert_type,
+           a.severity,
+           a.status,
+           a.message,
+           a.created_at,
+           a.acknowledged_at,
+           a.resolved_at
+      FROM security_alerts a
+      JOIN cameras c ON c.id = a.camera_id
+     WHERE c.account_id = assistant_account_id();
+END $$;
+
+-- Al final y en un solo sitio: las vistas de arriba pueden no existir todavia, y
+-- el rol tampoco.
+DO $$
+DECLARE
+    view_name text;
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'smartcattle_assistant') THEN
+        RETURN;
+    END IF;
+
+    FOREACH view_name IN ARRAY ARRAY['v_assistant_detections', 'v_assistant_events', 'v_assistant_cameras', 'v_assistant_alerts'] LOOP
+        IF to_regclass(view_name) IS NOT NULL THEN
+            EXECUTE format('GRANT SELECT ON %I TO smartcattle_assistant', view_name);
+        END IF;
+    END LOOP;
+
+    GRANT EXECUTE ON FUNCTION assistant_daily_reports(date, date, text) TO smartcattle_assistant;
+END $$;
