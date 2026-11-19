@@ -31,3 +31,43 @@ filas en 950 MB). El plan gratuito de Neon da 1 GB, así que hay que podar:
 SELECT prune_detection_logs(interval '90 days');
 ```
 
+Nada la llama sola. Los días podados dejan de aparecer en `daily_reports()`.
+
+## La vista `detections`
+
+Presenta `detection_logs` como una fila por objeto y postura vistos, sin ceros. No
+guarda nada.
+
+| Columna | Qué es |
+| --- | --- |
+| `camera_id`, `account_id` | La cámara y su cuenta **actual**. |
+| `object_type` | `cattle` o `person`. |
+| `posture` | `lying`, `standing` o `walking`. `NULL`: persona, o res sin postura estimada. |
+| `detected_count` | Cuántos se veían en ese minuto. |
+| `avg_confidence` | La del minuto entero, no la de este objeto. |
+| `timestamp` | El minuto. Va entre comillas dobles en SQL. |
+
+**Trampa:** `detected_count` es lo que se veía, no cuántas detecciones hubo. Las
+mismas 10 vacas durante una hora dan 60 filas con 10, no 600 vacas. Se promedia o
+se toma el máximo; **sumarlo no significa nada**.
+
+## `daily_reports()`
+
+```sql
+SELECT * FROM daily_reports(1, '2026-03-01', '2026-03-31', 'America/Bogota');
+```
+
+Una fila por cámara y día, calculada al pedirla. Es función porque así cada día se
+convierte en un rango sobre el índice; una vista agruparía antes de filtrar y
+recorrería toda la historia de la cuenta. No es tabla porque habría que refrescarla
+cada noche y el plan gratuito de Neon no tiene cron.
+
+Un día sin datos no tiene fila: «no hubo nada que resumir» no es cero vacas. La zona
+horaria decide dónde corta el día, y una inválida falla.
+
+`GET /api/reports/daily` es el informe de la API. Lo calcula el backend, no llama a
+esta función; `daily_reports()` existe para el asistente y para quien tenga `psql`.
+Si los dos llegan a diferir, hay que revisar ambos.
+
+Medido con 7,9 millones de filas, en PostgreSQL 18 local y una cuenta de 20 cámaras:
+54 ms un día, 856 ms treinta días.
