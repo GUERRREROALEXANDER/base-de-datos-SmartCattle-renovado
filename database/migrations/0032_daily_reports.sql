@@ -53,3 +53,40 @@ AS $$
      CROSS JOIN generate_series(first_day::timestamp, last_day::timestamp, interval '1 day') AS day
      CROSS JOIN LATERAL (
            -- Timestamps sin zona a proposito: asi un dia con cambio de hora dura
+           -- lo que dura, y no 24 horas fijas.
+           SELECT day AT TIME ZONE day_time_zone AS day_start,
+                  (day + interval '1 day') AT TIME ZONE day_time_zone AS day_end
+     ) AS bounds
+     CROSS JOIN LATERAL (
+           SELECT count(*)::integer AS minutes,
+                  round(avg(x.cattle_lying + x.cattle_standing + x.cattle_walking + x.cattle_unknown)::numeric, 1) AS avg_cattle,
+                  max(x.cattle_lying + x.cattle_standing + x.cattle_walking + x.cattle_unknown) AS max_cattle,
+                  round(avg(x.cattle_lying)::numeric, 1) AS avg_lying,
+                  round(avg(x.cattle_standing)::numeric, 1) AS avg_standing,
+                  round(avg(x.cattle_walking)::numeric, 1) AS avg_walking,
+                  max(x.people) AS max_people,
+                  (count(*) FILTER (WHERE x.people > 0))::integer AS minutes_with_people,
+                  round(avg(x.avg_confidence)::numeric, 3) AS avg_confidence,
+                  min(x.minute) AS first_seen,
+                  max(x.minute) AS last_seen
+             FROM detection_logs x
+            WHERE x.camera_id = c.id AND x.minute >= bounds.day_start AND x.minute < bounds.day_end
+     ) AS d
+     CROSS JOIN LATERAL (
+           SELECT count(*)::integer AS out_of_zone
+             FROM events x
+            WHERE x.camera_id = c.id AND x.type = 'cattle_out_of_zone'
+              AND x.detected_at >= bounds.day_start AND x.detected_at < bounds.day_end
+     ) AS e
+     CROSS JOIN LATERAL (
+           SELECT max(x.cattle_outside) AS max_outside
+             FROM occupancy_samples x
+            WHERE x.camera_id = c.id AND x.minute >= bounds.day_start AND x.minute < bounds.day_end
+     ) AS o
+     WHERE c.account_id = report_account_id
+       AND (d.minutes > 0 OR e.out_of_zone > 0 OR o.max_outside IS NOT NULL)
+     ORDER BY 1, 3
+$$;
+
+COMMENT ON FUNCTION daily_reports(bigint, date, date, text) IS
+    'Informe por camara y dia de una cuenta. Se calcula al pedirlo; los dias podados dejan de aparecer.';
