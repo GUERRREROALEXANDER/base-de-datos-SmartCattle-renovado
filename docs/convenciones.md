@@ -31,3 +31,33 @@ obliga a `ALTER TYPE` para agregar un valor, y eso no se puede hacer dentro de
 una transaccion con otros cambios. Un `CHECK` se reemplaza en el mismo
 `ALTER TABLE` que el resto de la migracion.
 
+`type` en `events` es la excepcion: no lleva `CHECK`. Los tipos de evento los
+define el servicio de IA, que evoluciona aparte, y un `CHECK` aqui lo
+bloquearia. El costo es que el backend tiene que filtrar los tipos que no
+conoce.
+
+## Se desactiva, no se borra
+
+`animals.status`, `users.is_active`, `cameras.active`, `zones.active`. Una fila
+borrada deja huerfano su historico y no se distingue de una que nunca existio.
+Por eso hay indices sobre esas columnas: filtrar es la consulta habitual.
+
+## Toda clave ajena lleva indice
+
+PostgreSQL no los crea. Sin ellos se paga dos veces: al consultar por la
+relacion y al borrar el padre, que recorre la tabla hija con el padre
+bloqueado. Lo comprueba `database/tests/05_foreign_keys_are_indexed.sql`.
+
+Unica excepcion admitida: cuando un `UNIQUE` compuesto ya deja un indice cuya
+**primera** columna es la clave ajena, como `zones (camera_id, name)`.
+
+## updated_at lo mantiene la base
+
+Con el trigger `set_updated_at()`, no la aplicacion. Varios servicios escriben
+en estas tablas, y un timestamp que solo un escritor refresca empieza a mentir
+en cuanto otro toca la fila.
+
+## Toda migracion es idempotente
+
+`IF NOT EXISTS` donde exista; un bloque `DO` que consulta el catalogo donde no,
+como en `ALTER COLUMN`. CI lo comprueba aplicando todo dos veces.
