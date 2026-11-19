@@ -24,3 +24,43 @@ causa de casi toda la nulabilidad que hay aqui.
 
 ### Casi todo admite `NULL` porque hay mas de un escritor
 
+Ningun servicio tiene todos los datos. La IA detecta un objeto y no sabe de
+que animal es; el personal registra un animal y no sabe donde esta. Una
+columna `NOT NULL` obligaria al escritor que no tiene ese dato a inventarlo.
+
+**El costo lo paga quien lee.** El esquema `Event` de la API exige
+`detected_object`, `confidence`, `received_at` y un `type` conocido, y las
+cuatro admiten `NULL` aqui. El backend las filtra en SQL, y `v_api_events`
+existe para que ese filtro este escrito una sola vez.
+
+### Las tablas que son de un solo servicio
+
+Las columnas de estado de `cameras` y las siete tablas de
+[diccionario/tablas-del-backend.md](diccionario/tablas-del-backend.md) las
+creo el backend con sus propias migraciones de Alembic y solo el las escribe.
+Ahi si puede haber `NOT NULL`, y lo hay.
+
+La diferencia practica: una columna compartida se agrega nulable y se coordina;
+una columna de un solo servicio es asunto de ese servicio.
+
+### Lo que todavia no escribe nadie
+
+`alerts`, `events.zone_id` y `events.animal_tag`. Estan disenadas y vacias.
+No es descuido: `animal_tag` espera a que la IA identifique animales, y
+`alerts` a que existan las notificaciones salientes. Los incidentes que el
+personal atiende en el tablero van en `security_alerts`, del backend.
+
+## El asistente de IA
+
+Nada lo escribe ni lo llama todavia. Cuando exista, lee con el rol
+`smartcattle_assistant`, solo por lo que describe [asistente.md](asistente.md).
+
+## La regla al cambiar algo compartido
+
+Un rename rompio a los tres servicios a la vez una vez (ver
+[decisiones.md](decisiones.md), punto 2). Desde entonces:
+
+1. Columna nueva: **nulable**, y nadie queda obligado.
+2. Columna que se va: primero deja de usarse en los tres servicios, despues se
+   quita.
+3. Rename: se coordina antes, no despues.
