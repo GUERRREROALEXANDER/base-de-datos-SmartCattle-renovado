@@ -27,3 +27,37 @@ lo que la cola, no lo que el historico.
 
 ## Quitar algo
 
+En dos pasos, nunca en uno:
+
+1. Dejar de usarlo en los tres servicios. Desplegar.
+2. Despues, la migracion que lo quita.
+
+Al revés rompe el servicio que todavía lo leía.
+
+## Renombrar
+
+**Se coordina antes.** Un rename no es compatible hacia atras y no hay forma
+de hacerlo gradual en una sola columna. Si se puede evitar, se evita: una
+columna nueva mas una vista que presente el nombre viejo migra sin romper.
+
+## Antes de subir
+
+```powershell
+./scripts/check-install-lists-migrations.sh
+
+psql "$env:TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f database/install.sql
+Get-ChildItem database/tests/*.sql | Sort-Object Name | ForEach-Object {
+  psql "$env:TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f $_.FullName
+}
+```
+
+Contra una base **desechable**. En Neon, un branch sirve y no cuesta nada.
+
+CI corre lo mismo contra PostgreSQL 17, aplica todo dos veces, y repite las
+comprobaciones con datos sembrados.
+
+## Lo que no va en un commit
+
+La cadena de conexion, en ninguna forma. `.gitignore` cubre `.env` y `*.dump`,
+pero un `psql "postgresql://usuario:clave@..."` pegado en un README no lo
+cubre nada.
