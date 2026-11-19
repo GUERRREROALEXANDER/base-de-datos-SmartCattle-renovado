@@ -42,3 +42,25 @@ Una sola:
 psql "$env:DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/0001_widen_event_confidence.sql
 ```
 
+`ON_ERROR_STOP=1` importa: sin él `psql` sigue después de un error y deja la
+base a mitad de camino.
+
+## Relación con SmartCattle-Backend
+
+El backend lleva sus propias migraciones de Alembic en `migrations/versions/`
+para las columnas y tablas que él agregó, y aplica una copia de esta carpeta en
+una base nueva.
+
+`0025` a `0028` (medidas de lotes, catálogos, historial y vistas de reportes)
+están en **los dos** repositorios a propósito, para que esta base se pueda
+consultar completa sin el backend. Son las mismas que las `0014` a `0017` del
+backend, y cada lado salta lo que el otro ya creó, así que da igual cuál corra
+primero. Lo que depende de tablas del backend (`lots`, `security_alerts`, ...)
+se salta con un `NOTICE` si todavía no existen.
+
+`0029` a `0033` siguen la misma regla, y tienen una condición: **hay que copiarlas
+al backend junto con una revisión de Alembic que las aplique**. Su `0012` ya corrió
+en una base desplegada y no vuelve a leer esta carpeta. Esa revisión también debe
+quitar, al bajar, las vistas y funciones de `0031` a `0033`, o el `downgrade` no
+puede borrar `detection_logs` ni `cameras.account_id`. `0018_accounts` del backend
+debe saltar las columnas y el índice que `0030` ya creó.
