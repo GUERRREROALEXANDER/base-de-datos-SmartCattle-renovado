@@ -42,3 +42,57 @@ MB), en PostgreSQL 18 local, con una cuenta de 20 camaras:
 | --- | --- |
 | `daily_reports()` de un dia | 54 ms |
 | `daily_reports()` de 30 dias | 856 ms |
+| Vista `detections`, ultimas 24 horas agrupadas | 94 ms |
+| `v_assistant_detections`, ultimas 24 horas | 44 ms |
+
+En Neon sera mas lento: compute menor y red de por medio. El plan muestra
+`Seq Scan on cameras` porque esa tabla tiene decenas de filas, y ahi es lo correcto.
+
+## Comprobar que un indice se usa
+
+```sql
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT * FROM v_api_events ORDER BY detected_at DESC LIMIT 50;
+```
+
+Lo que se busca en la salida:
+
+- `Index Scan` o `Index Only Scan` -> bien.
+- `Seq Scan` sobre `events` -> el indice no se esta usando. En una tabla con
+  pocas filas eso es **correcto**: recorrer 40 filas es mas rapido que leer un
+  indice. Solo es un problema con volumen real.
+- `Rows Removed by Filter` alto -> el indice trae filas que luego se
+  descartan; falta una condicion en el indice o sobra en la consulta.
+
+`ANALYZE` ejecuta la consulta de verdad. Sobre un `DELETE` o un `UPDATE`,
+**lo hace**, asi que se envuelve en una transaccion y se revierte.
+
+## Cual indice no sirve para nada
+
+```sql
+SELECT indexrelname, idx_scan, pg_size_pretty(pg_relation_size(indexrelid)) AS tamano
+FROM pg_stat_user_indexes
+WHERE relname = 'events'
+ORDER BY idx_scan;
+```
+
+`idx_scan = 0` sobre una base con trafico real quiere decir que ese indice
+cuesta escrituras y espacio y no sirve a ninguna consulta.
+
+Dos avisos: el contador se reinicia al reiniciar las estadisticas, asi que un
+cero recien reiniciado no prueba nada; y un indice que sostiene un `UNIQUE` o
+una clave primaria **no se borra** aunque nunca se escanee, porque su trabajo
+es rechazar duplicados, no acelerar lecturas.
+
+## Las estadisticas, cuando el plan es raro
+
+PostgreSQL elige el plan con estadisticas que `ANALYZE` recoge. Despues de una
+carga grande -- sembrar datos, restaurar un respaldo -- estan desactualizadas y
+el planificador decide con numeros viejos:
+
+```sql
+ANALYZE events;
+```
+
+Es lo primero que hay que probar cuando una consulta se volvio lenta sin que
+cambiara ni la consulta ni los indices.
