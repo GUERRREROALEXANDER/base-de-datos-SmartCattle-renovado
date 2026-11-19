@@ -76,3 +76,85 @@ CREATE TABLE IF NOT EXISTS animals (
 -- query. Without this index it scans the table.
 CREATE INDEX IF NOT EXISTS animals_status_idx ON animals (status);
 
+-- Events produced by the rules (today: cattle_out_of_zone).
+CREATE TABLE IF NOT EXISTS events (
+    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    type        TEXT        NOT NULL,              -- e.g. 'cattle_out_of_zone'
+    level       TEXT        NOT NULL DEFAULT 'medium'
+                CHECK (level IN ('low', 'medium', 'high')),
+    source      TEXT        NOT NULL DEFAULT 'camera'
+                CHECK (source IN ('camera', 'image')),
+    camera_id   BIGINT      REFERENCES cameras(id) ON DELETE SET NULL,
+    zone_id     BIGINT      REFERENCES zones(id)   ON DELETE SET NULL,
+    -- Holds the ear tag, because that is the primary key of `animals`.
+    -- ON UPDATE CASCADE: with a natural primary key, replacing a lost tag would
+    -- otherwise leave these events pointing at one that no longer exists.
+    -- ON DELETE SET NULL: removing an animal must not delete its history.
+    animal_tag  TEXT        REFERENCES animals(tag)
+                            ON DELETE SET NULL ON UPDATE CASCADE,
+    detected_object TEXT,                          -- 'cow', etc.
+    confidence  REAL        CHECK (confidence BETWEEN 0 AND 1),
+    box         JSONB,                             -- [x1, y1, x2, y2] in pixels
+    width       INTEGER,
+    height      INTEGER,
+    -- `detected_at` is when the AI detected it. `received_at` is when the
+    -- backend received it. They differ under network delay, and the difference
+    -- reveals a skewed clock in the AI service.
+    detected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    received_at TIMESTAMPTZ,
+    -- Identifier the AI service generates once per detection and reuses on
+    -- every retry. The UNIQUE is what makes ingestion idempotent: the database
+    -- refuses the second insert, so two simultaneous retries cannot create two
+    -- rows. It allows NULL (and PostgreSQL permits several NULLs under a
+    -- UNIQUE) so other services writing here are not forced to supply it.
+    ai_event_id UUID        UNIQUE
+);
+CREATE INDEX IF NOT EXISTS events_detected_at_idx   ON events (detected_at DESC);
+CREATE INDEX IF NOT EXISTS events_type_detected_idx ON events (type, detected_at DESC);
+-- "The events of this animal" scans the table that grows fastest.
+CREATE INDEX IF NOT EXISTS events_animal_tag_idx    ON events (animal_tag);
+
+-- Alerts sent (or to be sent) to the person in charge, derived from an event.
+CREATE TABLE IF NOT EXISTS alerts (
+    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    event_id    BIGINT      NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    channel     TEXT        NOT NULL DEFAULT 'email'
+                CHECK (channel IN ('email', 'whatsapp', 'telegram', 'sms', 'n8n')),
+    status      TEXT        NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending', 'sent', 'failed', 'handled')),
+    detail      TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    sent_at     TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS alerts_status_idx ON alerts (status);
+
+-- `updated_at` is maintained by the database, not by the application: several
+-- services write to these tables (the AI service updates `last_detection`), and
+-- a timestamp only one writer refreshes starts lying as soon as another touches
+-- the row.
+CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger AS $$
+BEGIN
+    NEW.updated_at := now();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS animals_updated_at_trg ON animals;
+CREATE TRIGGER animals_updated_at_trg
+    BEFORE UPDATE ON animals
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS users_updated_at_trg ON users;
+CREATE TRIGGER users_updated_at_trg
+    BEFORE UPDATE ON users
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- Seed data: one camera and the backend's default safe zone.
+INSERT INTO cameras (name, source, location)
+VALUES ('Main camera', '0', 'To be defined')
+ON CONFLICT (name) DO NOTHING;
+
+INSERT INTO zones (camera_id, name, x_min, y_min, x_max, y_max)
+SELECT id, 'Safe zone', 0.1, 0.1, 0.9, 0.9
+FROM cameras WHERE name = 'Main camera'
+ON CONFLICT (camera_id, name) DO NOTHING;
