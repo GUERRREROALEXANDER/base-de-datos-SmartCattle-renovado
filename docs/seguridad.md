@@ -31,3 +31,36 @@ no exista, esa es la que corre en el despliegue.
 
 El backend la rechaza si trae usuario y contrasena, porque la columna se
 publica tal cual en `GET /api/cameras`. Una URL RTSP de la forma
+`rtsp://usuario:clave@camara/stream` convertiria esa respuesta en una fuga.
+
+Por lo mismo, `cameras.last_error` rechaza cualquier texto que contenga
+`://`: un mensaje de error de la libreria de video suele incluir la URL que
+fallo, con sus credenciales dentro.
+
+### `source` si puede traerlas, y por eso no se publica
+
+`cameras.source` es la configuracion real de captura y **si** puede ser una
+URL RTSP con credenciales. No la expone ningun endpoint, y no debe exponerla
+ninguno. Es la diferencia entre esa columna y `stream_url`.
+
+### Las cuentas se desactivan, no se borran
+
+`users.is_active` a `false`. Borrar la fila destruye el registro de quien tuvo
+acceso, que es justo lo que hace falta al revisar un incidente.
+
+### El asistente de IA no alcanza las tablas
+
+Su rol solo lee vistas filtradas por la cuenta de la sesion y sin datos personales,
+y el backend nunca le ejecuta SQL escrito por el modelo. Ver
+[asistente.md](asistente.md).
+
+## Lo que falta
+
+- **Nada aplica los roles.** `users.role` registra `owner` o `worker`, y lo
+  que cada uno puede hacer no se controla ni aqui ni en el backend. El
+  frontend tiene `can(role, permission)` y su propio comentario advierte que
+  es solo para la interfaz.
+- **No hay bitacora de acceso.** `last_login_at` (migracion 0005) dice cuando
+  fue el ultimo, no cuantos intentos fallaron ni desde donde.
+- **No hay cifrado en reposo propio.** Lo da Neon a nivel de disco; esta base
+  no cifra ninguna columna por separado.
