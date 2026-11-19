@@ -67,3 +67,73 @@ SELECT e.detected_at::date AS day,
 CREATE OR REPLACE VIEW v_occupancy_hourly AS
 SELECT c.name AS camera,
            date_trunc('hour', s.minute) AS hour,
+           round(avg(s.cattle_inside)::numeric, 1) AS avg_inside,
+           max(s.cattle_inside) AS max_inside,
+           round(avg(s.cattle_outside)::numeric, 1) AS avg_outside,
+           max(s.cattle_outside) AS max_outside,
+           count(*) AS samples
+      FROM occupancy_samples s
+      JOIN cameras c ON c.id = s.camera_id
+     GROUP BY 1, 2;
+
+CREATE OR REPLACE VIEW v_camera_status_periods AS
+SELECT c.name AS camera,
+           s.status,
+           s.error,
+           s.changed_at AS started_at,
+           lead(s.changed_at) OVER w AS ended_at,
+           round((extract(epoch FROM coalesce(lead(s.changed_at) OVER w, now()) - s.changed_at) / 60)::numeric, 1)
+               AS minutes
+      FROM camera_status_changes s
+      JOIN cameras c ON c.id = s.camera_id
+    WINDOW w AS (PARTITION BY s.camera_id ORDER BY s.changed_at, s.id);
+
+DO $$
+BEGIN
+    IF to_regclass('farms') IS NULL OR to_regclass('lots') IS NULL THEN
+        RAISE NOTICE 'v_farm_overview omitida: faltan tablas del backend (farms, lots)';
+        RETURN;
+    END IF;
+
+    CREATE OR REPLACE VIEW v_farm_overview AS
+    SELECT f.id AS farm_id,
+               f.name AS farm,
+               u.email AS owner,
+               f.area_hectares,
+               count(l.id) AS lots,
+               count(l.id) FILTER (WHERE l.active) AS active_lots,
+               sum(l.area_square_meters) AS lots_area_square_meters,
+               sum(l.capacity) AS total_capacity,
+               count(l.camera_id) AS lots_with_camera
+          FROM farms f
+          JOIN users u ON u.id = f.owner_id
+          LEFT JOIN lots l ON l.farm_id = f.id
+         GROUP BY f.id, u.email;
+END $$;
+
+DO $$
+BEGIN
+    IF to_regclass('video_uploads') IS NULL OR to_regclass('lots') IS NULL OR to_regclass('video_analyses') IS NULL THEN
+        RAISE NOTICE 'v_video_processing omitida: faltan tablas del backend (video_uploads, lots, video_analyses)';
+        RETURN;
+    END IF;
+
+    CREATE OR REPLACE VIEW v_video_processing AS
+    SELECT v.id,
+               v.file_name,
+               v.status,
+               u.email AS uploaded_by,
+               l.name AS lot,
+               v.size_bytes,
+               v.attempts,
+               v.created_at,
+               v.finished_at,
+               round((extract(epoch FROM v.finished_at - v.started_at))::numeric, 1) AS processing_seconds,
+               a.max_cattle,
+               a.max_people,
+               v.error
+          FROM video_uploads v
+          JOIN users u ON u.id = v.uploaded_by
+          LEFT JOIN lots l ON l.id = v.lot_id
+          LEFT JOIN video_analyses a ON a.id = v.analysis_id;
+END $$;
