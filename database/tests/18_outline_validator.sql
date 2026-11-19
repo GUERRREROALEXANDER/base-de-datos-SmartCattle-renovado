@@ -22,3 +22,20 @@ BEGIN
            'deberia aceptar un cuadrilatero';
 
     -- Rechaza
+    ASSERT NOT is_valid_zone_outline('{"x":0.1,"y":0.1}'::jsonb),
+           'no deberia aceptar un objeto suelto';
+    ASSERT NOT is_valid_zone_outline('[{"x":0.1,"y":0.1},{"x":0.9,"y":0.9}]'::jsonb),
+           'no deberia aceptar dos vertices';
+    ASSERT NOT is_valid_zone_outline('[{"x":0.1,"y":0.1},{"x":1.5,"y":0.2},{"x":0.8,"y":0.9}]'::jsonb),
+           'no deberia aceptar una coordenada mayor que 1';
+    ASSERT NOT is_valid_zone_outline('[{"x":-0.1,"y":0.1},{"x":0.9,"y":0.2},{"x":0.8,"y":0.9}]'::jsonb),
+           'no deberia aceptar una coordenada negativa';
+    ASSERT NOT is_valid_zone_outline('[{"x":0.1},{"x":0.9,"y":0.2},{"x":0.8,"y":0.9}]'::jsonb),
+           'no deberia aceptar un vertice sin y';
+    ASSERT NOT is_valid_zone_outline('[{"x":"0.1","y":0.1},{"x":0.9,"y":0.2},{"x":0.8,"y":0.9}]'::jsonb),
+           'no deberia aceptar una coordenada en texto';
+    ASSERT NOT is_valid_zone_outline('"[]"'::jsonb),
+           'no deberia aceptar una cadena';
+    ASSERT NOT is_valid_zone_outline('3'::jsonb),
+           'no deberia aceptar un numero';
+END $$;
