@@ -36,3 +36,50 @@ CREATE INDEX IF NOT EXISTS detection_logs_minute_idx ON detection_logs (minute);
 
 -- La misma forma de consultar que events: una fila por objeto y postura vistos,
 -- sin filas en cero. No guarda nada; lee detection_logs.
+CREATE OR REPLACE VIEW detections AS
+SELECT l.camera_id,
+       c.account_id,
+       x.object_type,
+       x.posture,
+       x.detected_count,
+       l.avg_confidence,
+       l.minute AS "timestamp"
+  FROM detection_logs l
+  JOIN cameras c ON c.id = l.camera_id
+ CROSS JOIN LATERAL (VALUES
+       ('cattle', 'lying',    l.cattle_lying),
+       ('cattle', 'standing', l.cattle_standing),
+       ('cattle', 'walking',  l.cattle_walking),
+       ('cattle', NULL,       l.cattle_unknown),
+       ('person', NULL,       l.people)
+ ) AS x (object_type, posture, detected_count)
+ WHERE x.detected_count > 0;
+
+-- Igual que prune_events (0014): sin cron en el plan gratuito de Neon, la llama
+-- quien decida la politica.
+CREATE OR REPLACE FUNCTION prune_detection_logs(older_than interval)
+RETURNS bigint
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    removed bigint;
+BEGIN
+    IF older_than IS NULL OR older_than <= interval '0' THEN
+        RAISE EXCEPTION 'prune_detection_logs necesita un intervalo positivo, recibio %', older_than;
+    END IF;
+
+    DELETE FROM detection_logs WHERE minute < now() - older_than;
+    GET DIAGNOSTICS removed = ROW_COUNT;
+    RETURN removed;
+END $$;
+
+COMMENT ON TABLE detection_logs IS
+    'Lo que vio la IA por camara y minuto: el ultimo reporte de ese minuto. Crece ~1 440 filas por camara al dia.';
+COMMENT ON COLUMN detection_logs.minute IS 'El minuto, con los segundos en cero (UTC).';
+COMMENT ON COLUMN detection_logs.cattle_unknown IS 'Reses cuya postura la IA no pudo estimar. No es lo mismo que de pie.';
+COMMENT ON COLUMN detection_logs.observed_at IS 'Reloj de la IA del reporte que quedo. Uno atrasado no reescribe el minuto.';
+COMMENT ON VIEW detections IS
+    'detection_logs por objeto y postura. detected_count es cuantos se veian en ese minuto, no cuantas detecciones hubo.';
+COMMENT ON COLUMN detections.posture IS 'lying, standing o walking. NULL: persona, o res cuya postura no se pudo estimar.';
+COMMENT ON FUNCTION prune_detection_logs(interval) IS
+    'Borra lo anterior al intervalo dado y devuelve cuantas filas. Esos dias dejan de aparecer en daily_reports().';
