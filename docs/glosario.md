@@ -27,3 +27,29 @@ filas.
 
 **`detected_at`** — Cuando lo detecto la IA. Reloj del PC del predio.
 
+**`received_at`** — Cuando lo recibio el backend. Reloj de Render. La
+diferencia entre los dos es el diagnostico, no un dato redundante.
+
+**estado efectivo** (*effective status*) — Lo que una camara esta, no lo que
+dijo. `reported_status` es lo ultimo que reporto la IA; el estado efectivo
+vence ese reporte a los 60 s. Lo calcula `v_camera_health` y el backend.
+
+**desconocido** (*unknown*) — Una camara que existe como fila y que **nadie
+reporto nunca**. No es `offline`: una esta averiada, la otra no esta
+configurada.
+
+**perdido** (*lost*) — Un animal que deberia estar y no aparece.
+`animals.status = 'lost'`. No es `inactive`, que es una baja administrativa.
+
+**enviada** vs **atendida** (*sent* / *handled*) — `sent` es que el mensaje
+salio. `handled` es que **una persona hizo algo**. La diferencia entre
+avisamos y alguien fue a ver la vaca.
+
+**idempotente** — Que volver a hacerlo no cambia el resultado. Aplica a dos
+cosas distintas aqui: las migraciones (volver a correrlas no falla ni
+duplica) y la ingesta de eventos (un reintento con el mismo `ai_event_id` no
+crea una segunda fila).
+
+**fila ajena** — Una fila de `events` o `cameras` que escribio un servicio que
+no es el backend. Suelen faltarle columnas que la API exige, y por eso
+`v_api_events` las filtra.
