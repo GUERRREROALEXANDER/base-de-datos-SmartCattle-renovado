@@ -28,3 +28,41 @@ BEGIN
     -- La cola de envio.
     PERFORM a.id, a.channel, now() - a.created_at, e.type, c.name
     FROM alerts a
+    JOIN events e ON e.id = a.event_id
+    LEFT JOIN cameras c ON c.id = e.camera_id
+    WHERE a.status = 'pending';
+
+    -- Reintentos fallidos.
+    PERFORM channel, count(*), max(created_at), min(detail)
+    FROM alerts WHERE status = 'failed' GROUP BY channel;
+
+    -- Desfase entre relojes.
+    PERFORM date_trunc('hour', received_at), count(*),
+            avg(received_at - detected_at), max(received_at - detected_at)
+    FROM events
+    WHERE received_at IS NOT NULL AND detected_at IS NOT NULL
+    GROUP BY 1;
+
+    -- Filas que la API no puede listar, desglosadas.
+    PERFORM count(*) FILTER (WHERE ai_event_id IS NULL),
+            count(*) FILTER (WHERE received_at IS NULL),
+            count(*) FILTER (WHERE detected_object IS NULL),
+            count(*) FILTER (WHERE confidence IS NULL)
+    FROM events;
+END $$;
+
+-- La de duplicados tiene que devolver cero filas siempre: lo garantiza el
+-- UNIQUE sobre ai_event_id. Esta si se comprueba.
+DO $$
+DECLARE
+    duplicated bigint;
+BEGIN
+    SELECT count(*) INTO duplicated FROM (
+        SELECT ai_event_id FROM events
+        WHERE ai_event_id IS NOT NULL
+        GROUP BY ai_event_id HAVING count(*) > 1
+    ) d;
+
+    ASSERT duplicated = 0,
+           format('hay %s ai_event_id duplicados: el UNIQUE se cayo', duplicated);
+END $$;
