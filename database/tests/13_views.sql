@@ -26,3 +26,28 @@ BEGIN
     INSERT INTO events (type, camera_id, detected_object, ai_event_id, received_at)
     VALUES ('cattle_out_of_zone', camera, 'cow', gen_random_uuid(), now());
     -- Fila que si cumple.
+    INSERT INTO events (type, camera_id, detected_object, confidence, ai_event_id, received_at)
+    VALUES ('cattle_out_of_zone', camera, 'cow', 0.9, gen_random_uuid(), now());
+
+    ASSERT (SELECT count(*) FROM v_api_events) = before_count + 1,
+           'v_api_events deberia listar solo la fila completa';
+    ASSERT (SELECT camera_name FROM v_api_events WHERE camera_id = camera) = 'test-view',
+           'v_api_events no resolvio el nombre de la camara';
+
+    DELETE FROM events WHERE camera_id = camera;
+    DELETE FROM cameras WHERE id = camera;
+END $$;
+
+-- v_active_herd no esconde a un animal sin ubicacion.
+DO $$
+BEGIN
+    INSERT INTO animals (tag, name) VALUES ('test-herd', 'Sin ubicar');
+    ASSERT (SELECT count(*) FROM v_active_herd WHERE tag = 'test-herd') = 1,
+           'v_active_herd perdio un animal sin camara ni zona (LEFT JOIN roto)';
+
+    UPDATE animals SET status = 'inactive' WHERE tag = 'test-herd';
+    ASSERT (SELECT count(*) FROM v_active_herd WHERE tag = 'test-herd') = 0,
+           'v_active_herd listo un animal inactivo';
+
+    DELETE FROM animals WHERE tag = 'test-herd';
+END $$;
