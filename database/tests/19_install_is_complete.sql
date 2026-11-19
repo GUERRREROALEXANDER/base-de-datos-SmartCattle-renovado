@@ -31,3 +31,36 @@ BEGIN
     ASSERT missing IS NULL, format('faltan indices: %s', missing);
 
     -- Columnas de las migraciones
+    SELECT array_agg(name ORDER BY name) INTO missing
+    FROM unnest(ARRAY[
+        'users.last_login_at', 'alerts.user_id', 'zones.outline', 'users.preferences',
+        'cameras.account_id', 'cameras.display_name', 'detection_logs.minute'
+    ]) AS name
+    WHERE NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name  = split_part(name, '.', 1)
+          AND column_name = split_part(name, '.', 2)
+    );
+    ASSERT missing IS NULL, format('faltan columnas: %s', missing);
+
+    -- Funciones
+    SELECT array_agg(name ORDER BY name) INTO missing
+    FROM unnest(ARRAY[
+        'prune_events', 'is_valid_zone_outline', 'set_updated_at',
+        'prune_detection_logs', 'daily_reports', 'assistant_account_id', 'assistant_daily_reports'
+    ]) AS name
+    WHERE NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = name);
+    ASSERT missing IS NULL, format('faltan funciones: %s', missing);
+
+    -- Constraints agregadas por migraciones
+    SELECT array_agg(name ORDER BY name) INTO missing
+    FROM unnest(ARRAY['events_frame_size_check', 'zones_outline_check']) AS name
+    WHERE NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = name);
+    ASSERT missing IS NULL, format('faltan constraints: %s', missing);
+
+    -- events.confidence se amplio a float8
+    ASSERT (
+        SELECT data_type FROM information_schema.columns
+        WHERE table_name = 'events' AND column_name = 'confidence'
+    ) = 'double precision', 'events.confidence no se amplio a double precision';
+END $$;
