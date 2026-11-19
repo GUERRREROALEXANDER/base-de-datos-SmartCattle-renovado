@@ -72,3 +72,75 @@ CREATE TABLE IF NOT EXISTS camera_statuses (
 );
 
 INSERT INTO camera_statuses (code, label, label_es, description, sort_order) VALUES
+    ('online', 'Online', 'En línea', 'Reporting and streaming', 1),
+    ('offline', 'Offline', 'Desconectada', 'Reported offline, or silent for longer than the offline threshold', 2),
+    ('error', 'Error', 'Error', 'Reporting a fault', 3)
+ON CONFLICT (code) DO NOTHING;
+
+COMMENT ON TABLE camera_statuses IS 'Catalogo: valores permitidos de la columna codificada, con etiqueta en ingles y espanol.';
+
+CREATE TABLE IF NOT EXISTS lot_kinds (
+    code        text    PRIMARY KEY,
+    label       text    NOT NULL,
+    label_es    text    NOT NULL,
+    description text    NOT NULL,
+    sort_order  integer NOT NULL
+);
+
+INSERT INTO lot_kinds (code, label, label_es, description, sort_order) VALUES
+    ('paddock', 'Paddock', 'Potrero', 'Fenced grazing area', 1),
+    ('stable', 'Stable', 'Establo', 'Roofed building', 2),
+    ('pen', 'Pen', 'Corral', 'Small enclosure for handling', 3),
+    ('pasture', 'Pasture', 'Pastizal', 'Open grazing land', 4)
+ON CONFLICT (code) DO NOTHING;
+
+COMMENT ON TABLE lot_kinds IS 'Catalogo: valores permitidos de la columna codificada, con etiqueta en ingles y espanol.';
+
+CREATE TABLE IF NOT EXISTS user_roles (
+    code        text    PRIMARY KEY,
+    label       text    NOT NULL,
+    label_es    text    NOT NULL,
+    description text    NOT NULL,
+    sort_order  integer NOT NULL
+);
+
+INSERT INTO user_roles (code, label, label_es, description, sort_order) VALUES
+    ('owner', 'Owner', 'Dueño', 'Manages farms, lots, zones and accounts', 1),
+    ('worker', 'Worker', 'Trabajador', 'Monitors and handles alerts', 2)
+ON CONFLICT (code) DO NOTHING;
+
+COMMENT ON TABLE user_roles IS 'Catalogo: valores permitidos de la columna codificada, con etiqueta en ingles y espanol.';
+
+CREATE TABLE IF NOT EXISTS animal_statuses (
+    code        text    PRIMARY KEY,
+    label       text    NOT NULL,
+    label_es    text    NOT NULL,
+    description text    NOT NULL,
+    sort_order  integer NOT NULL
+);
+
+INSERT INTO animal_statuses (code, label, label_es, description, sort_order) VALUES
+    ('active', 'Active', 'Activo', 'On the farm', 1),
+    ('inactive', 'Inactive', 'Inactivo', 'Left the farm: sold, moved or dead', 2),
+    ('lost', 'Lost', 'Perdido', 'Should be on the farm and is not', 3)
+ON CONFLICT (code) DO NOTHING;
+
+COMMENT ON TABLE animal_statuses IS 'Catalogo: valores permitidos de la columna codificada, con etiqueta en ingles y espanol.';
+
+CREATE TABLE IF NOT EXISTS video_upload_statuses (
+    code        text    PRIMARY KEY,
+    label       text    NOT NULL,
+    label_es    text    NOT NULL,
+    description text    NOT NULL,
+    sort_order  integer NOT NULL
+);
+
+INSERT INTO video_upload_statuses (code, label, label_es, description, sort_order) VALUES
+    ('pending_upload', 'Pending upload', 'Subida pendiente', 'Registered; the file has not been confirmed', 1),
+    ('queued', 'Queued', 'En cola', 'Uploaded and waiting for a worker', 2),
+    ('processing', 'Processing', 'Procesando', 'A worker is analysing it', 3),
+    ('completed', 'Completed', 'Completado', 'Analysis delivered', 4),
+    ('failed', 'Failed', 'Fallido', 'Could not be uploaded or processed', 5)
+ON CONFLICT (code) DO NOTHING;
+
+COMMENT ON TABLE video_upload_statuses IS 'Catalogo: valores permitidos de la columna codificada, con etiqueta en ingles y espanol.';
