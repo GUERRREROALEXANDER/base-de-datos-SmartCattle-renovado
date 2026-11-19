@@ -88,3 +88,75 @@ le mandaron; eso esta en las tablas del backend, en el diagrama siguiente.
 ## Las tablas del backend
 
 Las crea y escribe solo SmartCattle-Backend (ver
+[diccionario/tablas-del-backend.md](diccionario/tablas-del-backend.md)). Se
+cuelgan de las compartidas, nunca al reves: ninguna tabla de `schema.sql`
+apunta a una del backend.
+
+```mermaid
+erDiagram
+    users           ||--o{ farms                 : "RESTRICT"
+    farms           ||--o{ lots                  : "CASCADE"
+    cameras         ||--o{ lots                  : "SET NULL"
+    cameras         ||--o| camera_occupancy      : "CASCADE"
+    events          ||--o{ security_alerts       : "SET NULL (ai_event_id)"
+    cameras         ||--o{ security_alerts       : "SET NULL"
+    users           ||--o{ security_alerts       : "SET NULL (atendio / resolvio)"
+    video_analyses  ||--o{ video_analysis_alerts : "CASCADE"
+    users           ||--o{ video_uploads         : "RESTRICT"
+    lots            ||--o{ video_uploads         : "SET NULL"
+    video_analyses  ||--o| video_uploads         : "SET NULL"
+
+    farms {
+        bigint id PK
+        bigint owner_id FK
+        text   name
+        float8 latitude
+        float8 longitude
+    }
+    lots {
+        bigint id PK
+        bigint farm_id FK
+        bigint camera_id FK
+        text   name
+        text   kind
+        jsonb  boundary
+    }
+    security_alerts {
+        uuid        id PK
+        uuid        event_id FK
+        bigint      camera_id FK
+        text        status
+        bigint      acknowledged_by FK
+        bigint      resolved_by FK
+    }
+    camera_occupancy {
+        bigint      camera_id PK
+        int         cattle_inside
+        int         cattle_outside
+        timestamptz received_at
+    }
+    video_uploads {
+        uuid   id PK
+        bigint lot_id FK
+        bigint uploaded_by FK
+        uuid   analysis_id FK
+        text   status
+        bigint size_bytes
+    }
+```
+
+Los dos `RESTRICT` son a proposito: borrar una cuenta no puede llevarse fincas
+ni videos por efecto colateral. Primero se reasignan, o la cuenta se desactiva
+con `is_active`, que es como se retira el acceso.
+
+## Lo que dice el diagrama de un vistazo
+
+En este primer diagrama, tres relaciones borran en cascada: `zones` y
+`detection_logs` con su camara, y `alerts` con su evento. Las demas hacen
+`SET NULL`, y esa asimetria es la regla del esquema:
+**el historico sobrevive a que se retire su origen**, salvo cuando la fila no
+significa nada sin el.
+
+`animals` a `events` es la unica que ademas lleva `ON UPDATE CASCADE`, porque
+es la unica clave ajena que apunta a una clave primaria natural, y una clave
+natural si cambia.
