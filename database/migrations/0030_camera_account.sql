@@ -28,3 +28,38 @@ END $$;
 -- Consulta: las camaras de una cuenta, en cada pagina y en cada reporte.
 --     SELECT ... FROM cameras WHERE account_id = $1
 -- El nombre es el de 0018_accounts, para no dejar dos indices iguales.
+CREATE INDEX IF NOT EXISTS ix_cameras_account_id ON cameras (account_id);
+
+-- Una cuenta no repite nombre, sin distinguir mayusculas: "Corral" y "corral" se
+-- confunden en un tablero. Una base en uso puede tener ya repetidos, y borrar o
+-- renombrar los de alguien no le toca a una migracion. En ese caso avisa y sigue;
+-- arreglados los nombres, volver a correrla crea el indice.
+DO $$
+DECLARE
+    repeated bigint;
+BEGIN
+    IF to_regclass('cameras_account_display_name_key') IS NOT NULL THEN
+        RETURN;
+    END IF;
+
+    SELECT count(*) INTO repeated FROM (
+        SELECT 1 FROM cameras
+         WHERE account_id IS NOT NULL AND display_name IS NOT NULL
+         GROUP BY account_id, lower(display_name)
+        HAVING count(*) > 1
+    ) AS duplicates;
+
+    IF repeated > 0 THEN
+        RAISE WARNING 'cameras_account_display_name_key omitido: % nombres repetidos dentro de una cuenta. Ver docs/diccionario/cameras.md', repeated;
+        RETURN;
+    END IF;
+
+    CREATE UNIQUE INDEX cameras_account_display_name_key
+        ON cameras (account_id, lower(display_name))
+        WHERE account_id IS NOT NULL AND display_name IS NOT NULL;
+END $$;
+
+COMMENT ON COLUMN cameras.account_id IS
+    'Cuenta duena: el id en users de su dueno. NULL: la IA la reporta y nadie la guardo, asi que nadie la ve.';
+COMMENT ON COLUMN cameras.display_name IS
+    'Nombre que le dio su dueno, unico por cuenta. NULL mientras no este guardada. No confundir con name, el identificador global.';
