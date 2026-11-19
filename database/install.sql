@@ -26,3 +26,31 @@
 \i database/migrations/0005_user_last_login.sql
 \i database/migrations/0006_alerts_recipient.sql
 \i database/migrations/0007_pending_alert_queue.sql
+\i database/migrations/0008_active_herd_index.sql
+\i database/migrations/0009_api_event_index.sql
+\i database/migrations/0010_event_frame_bounds.sql
+\i database/migrations/0011_view_api_events.sql
+\i database/migrations/0012_view_camera_health.sql
+\i database/migrations/0013_view_active_herd.sql
+\i database/migrations/0014_event_retention.sql
+\i database/migrations/0015_comment_cameras.sql
+\i database/migrations/0016_comment_users.sql
+\i database/migrations/0017_comment_animals.sql
+\i database/migrations/0018_comment_events.sql
+\i database/migrations/0019_comment_alerts.sql
+\i database/migrations/0020_zone_outline.sql
+\i database/migrations/0021_animal_last_detection_index.sql
+\i database/migrations/0022_camera_active_index.sql
+\i database/migrations/0023_event_level_index.sql
+\i database/migrations/0024_alert_delivery_index.sql
+\i database/migrations/0025_lot_dimensions.sql
+\i database/migrations/0026_catalogs.sql
+\i database/migrations/0027_history.sql
+\i database/migrations/0028_report_views.sql
+\i database/migrations/0029_user_preferences.sql
+\i database/migrations/0030_camera_account.sql
+\i database/migrations/0031_detection_logs.sql
+\i database/migrations/0032_daily_reports.sql
+\i database/migrations/0033_assistant_access.sql
+
+\echo '== listo =='
