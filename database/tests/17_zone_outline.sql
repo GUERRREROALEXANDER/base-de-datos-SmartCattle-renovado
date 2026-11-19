@@ -28,3 +28,32 @@ BEGIN
 
     -- Dos vertices no encierran area.
     BEGIN
+        UPDATE zones SET outline = '[{"x":0.1,"y":0.1},{"x":0.9,"y":0.9}]'::jsonb WHERE id = zone;
+        ASSERT false, 'outline acepto un poligono de dos vertices';
+    EXCEPTION WHEN check_violation THEN NULL;
+    END;
+
+    -- Coordenada fuera del cuadro.
+    BEGIN
+        UPDATE zones SET outline = '[{"x":0.1,"y":0.1},{"x":1.5,"y":0.2},{"x":0.8,"y":0.9}]'::jsonb WHERE id = zone;
+        ASSERT false, 'outline acepto una coordenada mayor que 1';
+    EXCEPTION WHEN check_violation THEN NULL;
+    END;
+
+    -- Vertice sin y.
+    BEGIN
+        UPDATE zones SET outline = '[{"x":0.1},{"x":0.9,"y":0.2},{"x":0.8,"y":0.9}]'::jsonb WHERE id = zone;
+        ASSERT false, 'outline acepto un vertice sin y';
+    EXCEPTION WHEN check_violation THEN NULL;
+    END;
+
+    -- Coordenada como cadena en vez de numero.
+    BEGIN
+        UPDATE zones SET outline = '[{"x":"0.1","y":0.1},{"x":0.9,"y":0.2},{"x":0.8,"y":0.9}]'::jsonb WHERE id = zone;
+        ASSERT false, 'outline acepto una coordenada en texto';
+    EXCEPTION WHEN check_violation THEN NULL;
+    END;
+
+    DELETE FROM zones WHERE camera_id = camera;
+    DELETE FROM cameras WHERE id = camera;
+END $$;
